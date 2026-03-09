@@ -33,9 +33,11 @@ EXAMPLE_PROMPT = {
 }
 
 
+HF_REPO_ID = "Wan-AI/Wan2.2-I2V-A14B"
+
+
 def _validate_args(args):
     # Basic check
-    assert args.ckpt_dir is not None, "Please specify the checkpoint directory."
     assert args.task in WAN_CONFIGS, f"Unsupport task: {args.task}"
     assert args.task in EXAMPLE_PROMPT, f"Unsupport task: {args.task}"
 
@@ -98,7 +100,10 @@ def _parse_args():
         "--ckpt_dir",
         type=str,
         default=None,
-        help="The path to the checkpoint directory.",
+        help=(
+            "Path to a local checkpoint directory. "
+            f"If not provided, the model is downloaded from HuggingFace ({HF_REPO_ID})."
+        ),
     )
     parser.add_argument(
         "--offload_model",
@@ -374,11 +379,17 @@ def generate(args):
     else:
         logging.info("Creating WanI2V pipeline.")
 
+        ckpt_dir = args.ckpt_dir
+        if ckpt_dir is None:
+            from huggingface_hub import snapshot_download
+            logging.info(f"--ckpt_dir not set; downloading base model from HuggingFace ({HF_REPO_ID})...")
+            ckpt_dir = snapshot_download(repo_id=HF_REPO_ID)
+
         # set config.low_noise_checkpoint to args.low_noise_dit_weights
         cfg.low_noise_checkpoint = args.low_noise_dit_weights
         wan_v2v = wan.WanV2V(
             config=cfg,
-            checkpoint_dir=args.ckpt_dir,
+            checkpoint_dir=ckpt_dir,
             device_id=device,
             rank=rank,
             t5_fsdp=args.t5_fsdp,

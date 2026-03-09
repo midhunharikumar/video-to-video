@@ -305,7 +305,7 @@ class AdaptiveDepthProcessor(StreamProcessor):
                         pass
                     # Load models fresh (original behavior)
                     model_type = "diff" #TODO: provide flexibility to the user to choose the model type
-                    cache_dir = "/home/afridi/Depth/GeometryCrafter/workspace/cache"
+                    cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "geometrycrafter")
                     # Load UNet with FlashPack
                     start_time = time.perf_counter()
                     unet = load_geometrycrafter_with_flashpack(
