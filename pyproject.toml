@@ -78,6 +78,8 @@ generation = [
     # Video loading
     "decord",
     "av",
+    # Prompt expansion via DashScope API (optional; needs DASH_API_KEY env var)
+    "dashscope",
 ]
 
 # Development / testing

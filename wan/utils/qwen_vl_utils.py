@@ -234,7 +234,6 @@ def _read_video_decord(ele: dict,) -> torch.Tensor:
     video_path = ele["video"]
     st = time.time()
     vr = decord.VideoReader(video_path)
-    # TODO: support start_pts and end_pts
     if 'video_start' in ele or 'video_end' in ele:
         raise NotImplementedError(
             "not support start_pts and end_pts in decord for now.")

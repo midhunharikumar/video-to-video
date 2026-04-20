@@ -143,7 +143,11 @@ class DashScopePromptExpander(PromptExpander):
                 'DASH_API_KEY'] is not None:
             dashscope.api_key = os.environ['DASH_API_KEY']
         else:
-            raise ValueError("DASH_API_KEY is not set")
+            raise ValueError(
+                "DASH_API_KEY is not set. Get an API key at "
+                "https://dashscope.console.aliyun.com/ and set it with: "
+                "export DASH_API_KEY=<your-key>"
+            )
         if 'DASH_API_URL' in os.environ and os.environ[
                 'DASH_API_URL'] is not None:
             dashscope.base_http_api_url = os.environ['DASH_API_URL']

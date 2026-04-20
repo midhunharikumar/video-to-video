@@ -10,6 +10,12 @@ This repo targets **Python 3.10** so the same environment can support:
 - render asset generation (`render_from_cam_info.py`)
 - Uni3C GPU point-rasterizer backend (`pytorch3d`)
 
+### Prerequisites
+
+- Python 3.10
+- CUDA toolkit (matching your PyTorch build, e.g. CUDA 12.1 for `torch>=2.4`)
+- `uv` package manager
+
 ### Setup
 
 ```bash
@@ -18,7 +24,7 @@ source .venv/bin/activate
 uv sync --group full
 ./scripts/install_pytorch3d.sh /path/to/Uni3C/pytorch3d   # preferred if you have Uni3C checkout
 # or:
-./scripts/install_pytorch3d.sh                              # builds from upstream source tag
+./scripts/install_pytorch3d.sh                              # builds from upstream source tag (~10–30 min)
 ```
 
 `full` includes all optional groups (`depth`, `render`, `generation`, `dev`).
@@ -93,8 +99,8 @@ Real-data example:
 
 ```bash
 ./run_web_visualizer.sh \
-  --video /data/avinash/Uni3C/batch_processing/outputs_depthcrafter_point_video_480p/14169055_3840_2160_25fps/free1/input.mp4 \
-  --depth /data/avinash/v2v_release/test_depths.npz
+  --video /path/to/your/input.mp4 \
+  --depth /path/to/your/depths.npz
 ```
 
 Useful options:
@@ -130,6 +136,29 @@ Then in the browser you can either:
 - **upload a local file** from your browser.
 
 After selection, click **Estimate Depth + Start Point Cloud App**.
+
+## Prompt Extension (optional)
+
+`inference_wan22_v2v_local.py` and `generate.py` support optional LLM-based prompt expansion
+via `--use_prompt_extend`. Two backends are available:
+
+| Backend | Flag | Requirements |
+|---|---|---|
+| Local Qwen model (default) | `--prompt_extend_method local_qwen` | ~14 GB VRAM; model auto-downloaded from HuggingFace |
+| DashScope API | `--prompt_extend_method dashscope` | DashScope API key |
+
+**DashScope setup:**
+1. Create an account and get an API key at https://dashscope.console.aliyun.com/
+2. Export the key: `export DASH_API_KEY=<your-key>`
+
+**Example:**
+```bash
+python inference_wan22_v2v_local.py \
+  --use_prompt_extend \
+  --prompt_extend_method dashscope \
+  --prompt_extend_target_lang en \
+  ...
+```
 
 ## PyTorch3D / GPU Rendering Notes
 

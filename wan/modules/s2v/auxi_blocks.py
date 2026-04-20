@@ -103,7 +103,6 @@ def attention(
             else:
                 attn_bias += attn_mask
 
-        # TODO: Maybe force q and k to be float32 to avoid numerical overflow
         attn = (q @ k.transpose(-2, -1)) * scale_factor
         attn += attn_bias
         attn = attn.softmax(dim=-1)

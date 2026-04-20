@@ -4,8 +4,6 @@ import torch
 try:
     import flash_attn_interface
 
-    raise ModuleNotFoundError("FlashAttention 3 imported successfully")
-    print("✅ FlashAttention 3 imported successfully")
     FLASH_ATTN_3_AVAILABLE = True
 except ModuleNotFoundError:
     FLASH_ATTN_3_AVAILABLE = False

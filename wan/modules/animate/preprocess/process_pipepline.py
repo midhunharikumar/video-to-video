@@ -46,10 +46,9 @@ class ProcessPipeline():
             print('video_fps: {}'.format(video_fps))
             print('fps: {}'.format(fps))
 
-            # TODO: Maybe we can switch to PyAV later, which can get accurate frame num
-            duration = video_reader.get_frame_timestamp(-1)[-1]      
-            expected_frame_num = int(duration * video_fps + 0.5) 
-            ratio = abs((frame_num - expected_frame_num)/frame_num)         
+            duration = video_reader.get_frame_timestamp(-1)[-1]
+            expected_frame_num = int(duration * video_fps + 0.5)
+            ratio = abs((frame_num - expected_frame_num)/frame_num)
             if ratio > 0.1:
                 print("Warning: The difference between the actual number of frames and the expected number of frames is two large")
                 frame_num = expected_frame_num
@@ -144,10 +143,9 @@ class ProcessPipeline():
             print('video_fps: {}'.format(video_fps))
             print('fps: {}'.format(fps))
 
-            # TODO: Maybe we can switch to PyAV later, which can get accurate frame num
-            duration = video_reader.get_frame_timestamp(-1)[-1]      
-            expected_frame_num = int(duration * video_fps + 0.5) 
-            ratio = abs((frame_num - expected_frame_num)/frame_num)         
+            duration = video_reader.get_frame_timestamp(-1)[-1]
+            expected_frame_num = int(duration * video_fps + 0.5)
+            ratio = abs((frame_num - expected_frame_num)/frame_num)
             if ratio > 0.1:
                 print("Warning: The difference between the actual number of frames and the expected number of frames is two large")
                 frame_num = expected_frame_num
