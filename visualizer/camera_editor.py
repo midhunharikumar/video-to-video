@@ -71,6 +71,10 @@ class CameraEditor:
         # Easing mode for path interpolation
         self._easing_mode: str = "Linear"
 
+        # Undo/redo stacks (shallow copies of keyframe lists)
+        self._undo_stack: list[list[np.ndarray]] = []
+        self._redo_stack: list[list[np.ndarray]] = []
+
         # Path visualisation handles (replaced on every update)
         self._path_handle: viser.SplineCatmullRomHandle | None = None
         self._output_frustum_handles: list[viser.CameraFrustumHandle] = []
@@ -87,11 +91,21 @@ class CameraEditor:
         with self._lock:
             return list(self._c2w_keyframes)
 
+    def _save_undo(self) -> None:
+        """Snapshot current keyframes onto the undo stack. Clears redo."""
+        with self._lock:
+            snapshot = [kf.copy() for kf in self._c2w_keyframes]
+        self._undo_stack.append(snapshot)
+        if len(self._undo_stack) > 50:
+            self._undo_stack.pop(0)
+        self._redo_stack.clear()
+
     def add_keyframe(self, c2w_opencv: np.ndarray) -> None:
         """
         Add a new keyframe at the given c2w pose (OpenCV convention).
         Adds a draggable gizmo + frustum to the scene.
         """
+        self._save_undo()
         with self._lock:
             idx = len(self._c2w_keyframes)
             self._c2w_keyframes.append(c2w_opencv.copy())
@@ -104,6 +118,8 @@ class CameraEditor:
         with self._lock:
             if not self._c2w_keyframes:
                 return False
+        self._save_undo()
+        with self._lock:
             self._c2w_keyframes.pop()
             gizmo   = self._gizmo_handles.pop() if self._gizmo_handles else None
             frustum = self._frustum_handles.pop() if self._frustum_handles else None
@@ -113,6 +129,20 @@ class CameraEditor:
         if frustum is not None:
             frustum.remove()
 
+        self._refresh_path()
+        return True
+
+    def remove_keyframe(self, idx: int) -> bool:
+        """Remove keyframe at *idx*. Returns False if index out of range."""
+        with self._lock:
+            if idx < 0 or idx >= len(self._c2w_keyframes):
+                return False
+        self._save_undo()
+        self._remove_all_scene_handles()
+        with self._lock:
+            self._c2w_keyframes.pop(idx)
+            kfs = list(self._c2w_keyframes)
+        self._rebuild_scene_handles(kfs)
         self._refresh_path()
         return True
 
@@ -127,19 +157,33 @@ class CameraEditor:
 
     def clear_all(self) -> None:
         """Remove all keyframes and their scene handles."""
+        self._save_undo()
+        self._remove_all_scene_handles()
         with self._lock:
-            gizmos   = list(self._gizmo_handles)
-            frustums = list(self._frustum_handles)
             self._c2w_keyframes.clear()
-            self._gizmo_handles.clear()
-            self._frustum_handles.clear()
-
-        for g in gizmos:
-            g.remove()
-        for f in frustums:
-            f.remove()
-
         self._clear_path()
+
+    def undo(self) -> bool:
+        """Restore keyframes from the undo stack. Returns False if nothing to undo."""
+        if not self._undo_stack:
+            return False
+        with self._lock:
+            current = [kf.copy() for kf in self._c2w_keyframes]
+        self._redo_stack.append(current)
+        snapshot = self._undo_stack.pop()
+        self._restore_snapshot(snapshot)
+        return True
+
+    def redo(self) -> bool:
+        """Re-apply the last undone change. Returns False if nothing to redo."""
+        if not self._redo_stack:
+            return False
+        with self._lock:
+            current = [kf.copy() for kf in self._c2w_keyframes]
+        self._undo_stack.append(current)
+        snapshot = self._redo_stack.pop()
+        self._restore_snapshot(snapshot)
+        return True
 
     def set_easing_mode(self, mode: str) -> None:
         """
@@ -206,6 +250,28 @@ class CameraEditor:
             path_handle.visible = vis
 
     # ── Internal helpers ──────────────────────────────────────────────────────
+
+    def _remove_all_scene_handles(self) -> None:
+        with self._lock:
+            gizmos = list(self._gizmo_handles)
+            frustums = list(self._frustum_handles)
+            self._gizmo_handles.clear()
+            self._frustum_handles.clear()
+        for g in gizmos:
+            g.remove()
+        for f in frustums:
+            f.remove()
+
+    def _rebuild_scene_handles(self, kfs: list[np.ndarray]) -> None:
+        for i, c2w in enumerate(kfs):
+            self._add_scene_handles(i, c2w)
+
+    def _restore_snapshot(self, snapshot: list[np.ndarray]) -> None:
+        self._remove_all_scene_handles()
+        with self._lock:
+            self._c2w_keyframes = snapshot
+        self._rebuild_scene_handles(snapshot)
+        self._refresh_path()
 
     def _opencv_pos_to_display(self, pos_opencv: np.ndarray) -> np.ndarray:
         """Convert OpenCV world position to Viser display position (Y-up, recentered)."""
@@ -358,3 +424,99 @@ def _wxyz_to_rotation(wxyz) -> np.ndarray:
     wxyz = np.asarray(wxyz, dtype=np.float64)
     q_xyzw = np.array([wxyz[1], wxyz[2], wxyz[3], wxyz[0]])
     return _Rot.from_quat(q_xyzw).as_matrix().astype(np.float32)
+
+
+# ── Camera trajectory presets ────────────────────────────────────────────────
+
+PRESET_NAMES: tuple[str, ...] = (
+    "Push-in",
+    "Pull-out",
+    "Orbit Left",
+    "Orbit Right",
+    "Crane Up",
+)
+
+
+def _look_at_c2w(eye: np.ndarray, target: np.ndarray, up: np.ndarray = None) -> np.ndarray:
+    """Build a c2w matrix looking from *eye* toward *target* (OpenCV convention)."""
+    if up is None:
+        up = np.array([0, -1, 0], dtype=np.float64)
+    eye = np.asarray(eye, dtype=np.float64)
+    target = np.asarray(target, dtype=np.float64)
+    up = np.asarray(up, dtype=np.float64)
+    forward = target - eye
+    forward /= np.linalg.norm(forward) + 1e-12
+    right = np.cross(forward, up)
+    right /= np.linalg.norm(right) + 1e-12
+    down = np.cross(forward, right)
+    c2w = np.eye(4, dtype=np.float32)
+    c2w[:3, 0] = right
+    c2w[:3, 1] = down
+    c2w[:3, 2] = forward
+    c2w[:3, 3] = eye
+    return c2w
+
+
+def generate_preset(
+    name: str,
+    c2w_source: np.ndarray,
+    scene_center_opencv: np.ndarray,
+) -> list[np.ndarray]:
+    """Generate 2-3 keyframe c2w matrices (OpenCV) for a preset camera motion.
+
+    Args:
+        name: one of PRESET_NAMES
+        c2w_source: [4,4] source camera c2w (OpenCV convention)
+        scene_center_opencv: [3] scene center in OpenCV world coordinates
+
+    Returns:
+        List of c2w matrices forming the preset trajectory.
+    """
+    eye = c2w_source[:3, 3].astype(np.float64)
+    center = scene_center_opencv.astype(np.float64)
+    to_cam = eye - center
+    dist = np.linalg.norm(to_cam)
+    direction = to_cam / (dist + 1e-12)
+
+    if name == "Push-in":
+        end_eye = center + direction * dist * 0.65
+        return [
+            c2w_source.copy(),
+            _look_at_c2w(end_eye, center),
+        ]
+
+    elif name == "Pull-out":
+        end_eye = center + direction * dist * 1.4
+        return [
+            c2w_source.copy(),
+            _look_at_c2w(end_eye, center),
+        ]
+
+    elif name in ("Orbit Left", "Orbit Right"):
+        angle = np.radians(15.0 if name == "Orbit Left" else -15.0)
+        cos_a, sin_a = np.cos(angle), np.sin(angle)
+        R_y = np.array([
+            [cos_a, 0, sin_a],
+            [0,     1, 0],
+            [-sin_a, 0, cos_a],
+        ], dtype=np.float64)
+        mid_dir = R_y @ direction * 0.5
+        mid_eye = center + mid_dir * dist
+        end_dir = R_y @ R_y @ direction
+        end_eye = center + end_dir * dist
+        return [
+            c2w_source.copy(),
+            _look_at_c2w(mid_eye, center),
+            _look_at_c2w(end_eye, center),
+        ]
+
+    elif name == "Crane Up":
+        up_offset = np.array([0, -1, 0], dtype=np.float64) * dist * 0.3
+        end_eye = eye + up_offset
+        return [
+            c2w_source.copy(),
+            _look_at_c2w(end_eye, center),
+        ]
+
+    else:
+        raise ValueError(f"Unknown preset: {name!r}. Choose from {PRESET_NAMES}")

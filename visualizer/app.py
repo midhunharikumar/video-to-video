@@ -36,7 +36,7 @@ from pipeline_spec import (
 )
 import viser
 
-from .camera_editor import CameraEditor, _wxyz_to_rotation
+from .camera_editor import CameraEditor, PRESET_NAMES, generate_preset, _wxyz_to_rotation
 from .export import export_cam_info
 from .interpolation import _OPENGL_TO_OPENCV, c2w_to_w2c, EASING_MODES
 from .scene import (
@@ -99,20 +99,26 @@ def _estimate_scene_center(points_per_frame: list[np.ndarray]) -> np.ndarray:
     return (acc / n_total).astype(np.float32)
 
 
-def _make_viewfinder_overlay(aspect: float) -> np.ndarray:
+VIEWFINDER_MODES = ("Border only", "Rule of thirds", "Off")
+
+
+def _make_viewfinder_overlay(aspect: float, mode: str = "Border only") -> np.ndarray | None:
     """
-    Build a blue border-only framing guide RGBA image (fully transparent interior).
+    Build a framing guide RGBA image (fully transparent interior).
 
     Shown as a camera-attached plane in 3D to indicate the captured frame bounds.
     Only displayed when the user is not actively navigating the scene.
     """
+    if mode == "Off":
+        return None
+
     h = 720
     w = max(320, min(1920, int(round(h * max(float(aspect), 1e-3)))))
     rgba = np.zeros((h, w, 4), dtype=np.uint8)
 
     color      = np.array([80, 160, 255], dtype=np.uint8)  # blue
     alpha_edge = 220
-    alpha_tick = 170
+    alpha_grid = 120
     t = max(2, h // 240)   # border thickness (~3 px at 720p)
 
     # Full-frame border
@@ -121,18 +127,29 @@ def _make_viewfinder_overlay(aspect: float) -> np.ndarray:
     rgba[:,  :t,  :3] = color;  rgba[:,  :t,  3] = alpha_edge
     rgba[:, -t:, :3]  = color;  rgba[:, -t:, 3]  = alpha_edge
 
-    # Center crosshair
-    cx, cy = w // 2, h // 2
-    c_len = max(12, h // 30)
-    ct    = max(1, t // 2)
-    rgba[max(0, cy - ct):min(h, cy + ct),
-         max(0, cx - c_len):min(w, cx + c_len), :3] = color
-    rgba[max(0, cy - ct):min(h, cy + ct),
-         max(0, cx - c_len):min(w, cx + c_len), 3]  = alpha_tick
-    rgba[max(0, cy - c_len):min(h, cy + c_len),
-         max(0, cx - ct):min(w, cx + ct), :3] = color
-    rgba[max(0, cy - c_len):min(h, cy + c_len),
-         max(0, cx - ct):min(w, cx + ct), 3]  = alpha_tick
+    if mode == "Rule of thirds":
+        gt = max(1, t)
+        for frac in (1, 2):
+            y = h * frac // 3
+            x = w * frac // 3
+            rgba[max(0, y - gt):min(h, y + gt), :, :3] = color
+            rgba[max(0, y - gt):min(h, y + gt), :, 3]  = alpha_grid
+            rgba[:, max(0, x - gt):min(w, x + gt), :3]  = color
+            rgba[:, max(0, x - gt):min(w, x + gt), 3]   = alpha_grid
+    else:
+        # Center crosshair for "Border only"
+        cx, cy = w // 2, h // 2
+        c_len = max(12, h // 30)
+        ct    = max(1, t // 2)
+        alpha_tick = 170
+        rgba[max(0, cy - ct):min(h, cy + ct),
+             max(0, cx - c_len):min(w, cx + c_len), :3] = color
+        rgba[max(0, cy - ct):min(h, cy + ct),
+             max(0, cx - c_len):min(w, cx + c_len), 3]  = alpha_tick
+        rgba[max(0, cy - c_len):min(h, cy + c_len),
+             max(0, cx - ct):min(w, cx + ct), :3] = color
+        rgba[max(0, cy - c_len):min(h, cy + c_len),
+             max(0, cx - ct):min(w, cx + ct), 3]  = alpha_tick
     return rgba
 
 
@@ -274,6 +291,7 @@ def run(args: argparse.Namespace) -> None:
         "n_output":  render_frames_for_wan_output(snap_to_valid_wan_output(args.nframe)),
         "show_gizmos": False,
         "show_guide": True,
+        "guide_mode": "Border only",
     }
     pc_handles: list[viser.PointCloudHandle | None] = [None] * T
 
@@ -384,7 +402,9 @@ def run(args: argparse.Namespace) -> None:
         h = viewfinder_handles.get(client.client_id)
         # The overlay image has a fixed shape (output camera aspect); only create once.
         if h is None:
-            overlay_rgba = _make_viewfinder_overlay(aspect=aspect)
+            overlay_rgba = _make_viewfinder_overlay(aspect=aspect, mode=state.get("guide_mode", "Border only"))
+            if overlay_rgba is None:
+                return
             h = client.scene.add_image(
                 name="hud/viewfinder",
                 image=overlay_rgba,
@@ -527,7 +547,9 @@ def run(args: argparse.Namespace) -> None:
             "Playback FPS", min=1, max=30, step=1, initial_value=default_playback_fps
         )
         scene_loop_cb = server.gui.add_checkbox("Loop playback", initial_value=True)
-        guide_cb = server.gui.add_checkbox("Show Framing Guide", initial_value=True)
+        guide_dd = server.gui.add_dropdown(
+            "Framing Guide", options=list(VIEWFINDER_MODES), initial_value="Border only",
+        )
         with server.gui.add_folder("Display", expand_by_default=False):
             show_all_cb = server.gui.add_checkbox("Show all frames", initial_value=False)
             point_size_slider = server.gui.add_slider(
@@ -549,9 +571,18 @@ def run(args: argparse.Namespace) -> None:
         btn_add    = server.gui.add_button("Add Camera at Current View", color="green")
         btn_remove = server.gui.add_button("Remove Last Camera", color="yellow")
         btn_clear  = server.gui.add_button("Clear All Cameras", color="red")
+        btn_undo   = server.gui.add_button("Undo", color="gray")
+        btn_redo   = server.gui.add_button("Redo", color="gray")
         kf_count   = server.gui.add_text("Keyframes placed", initial_value="0",
                                           disabled=True)
         show_gizmos_cb = server.gui.add_checkbox("Show Keyframe Gizmos", initial_value=False)
+        with server.gui.add_folder("Presets", expand_by_default=False):
+            preset_dd = server.gui.add_dropdown(
+                "Trajectory preset",
+                options=list(PRESET_NAMES),
+                initial_value=PRESET_NAMES[0],
+            )
+            btn_apply_preset = server.gui.add_button("Apply Preset", color="teal")
         with server.gui.add_folder("Path Settings", expand_by_default=True):
             _default_wan = snap_to_valid_wan_output(args.nframe)
             _default_render = render_frames_for_wan_output(_default_wan)
@@ -733,9 +764,13 @@ def run(args: argparse.Namespace) -> None:
         _scene_frame.wxyz = (1.0, 0.0, 0.0, 0.0)
         _scene_frame.position = (0.0, 0.0, 0.0)
 
-    @guide_cb.on_update
+    @guide_dd.on_update
     def _on_guide_toggle(event: viser.GuiEvent) -> None:
-        state["show_guide"] = bool(event.target.value)
+        mode = event.target.value
+        state["show_guide"] = mode != "Off"
+        state["guide_mode"] = mode
+        # Force re-create overlay on mode change
+        viewfinder_handles.clear()
         for c in server.get_clients().values():
             if state["show_guide"]:
                 _schedule_viewfinder_settle(c)
@@ -855,6 +890,43 @@ def run(args: argparse.Namespace) -> None:
         editor.clear_all()
         kf_count.value = "0"
         _set_status("All keyframes cleared.")
+
+    @btn_apply_preset.on_click
+    def _on_apply_preset(event: viser.GuiEvent) -> None:
+        preset_name = preset_dd.value
+        scene_center_opencv = np.array(
+            [scene_center_viser[0], -scene_center_viser[1], -scene_center_viser[2]],
+            dtype=np.float32,
+        )
+        try:
+            keyframes = generate_preset(preset_name, c2w_0, scene_center_opencv)
+        except ValueError as exc:
+            _set_status(f"Preset error: {exc}")
+            return
+        editor.clear_all()
+        for kf in keyframes:
+            editor.add_keyframe(kf)
+        editor.set_gizmos_visible(state["show_gizmos"])
+        kf_count.value = str(editor.n_keyframes)
+        _set_status(f"Applied '{preset_name}' — {len(keyframes)} keyframes. Adjust gizmos or export.")
+
+    @btn_undo.on_click
+    def _on_undo(event: viser.GuiEvent) -> None:
+        if editor.undo():
+            editor.set_gizmos_visible(state["show_gizmos"])
+            kf_count.value = str(editor.n_keyframes)
+            _set_status(f"Undo — {editor.n_keyframes} keyframes.")
+        else:
+            _set_status("Nothing to undo.")
+
+    @btn_redo.on_click
+    def _on_redo(event: viser.GuiEvent) -> None:
+        if editor.redo():
+            editor.set_gizmos_visible(state["show_gizmos"])
+            kf_count.value = str(editor.n_keyframes)
+            _set_status(f"Redo — {editor.n_keyframes} keyframes.")
+        else:
+            _set_status("Nothing to redo.")
 
     @nframe_num.on_update
     def _on_nframe(event: viser.GuiEvent) -> None:
