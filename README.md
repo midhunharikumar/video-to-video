@@ -16,6 +16,19 @@
   <img src="assets/banner.png?raw=true" alt="Reshoot-Anything teaser" width="100%">
 </p>
 
+### Example Result
+
+<table>
+<tr>
+<td align="center"><b>Source Video</b></td>
+<td align="center"><b>Reshot Video</b></td>
+</tr>
+<tr>
+<td><img src="assets/woman_og.gif" width="400" alt="Source video"></td>
+<td><img src="assets/woman_01.gif" width="400" alt="Reshot video"></td>
+</tr>
+</table>
+
 ## Overview
 
 Reshoot-Anything reshoots dynamic monocular videos under novel camera trajectories.
