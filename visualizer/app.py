@@ -706,10 +706,12 @@ def run(args: argparse.Namespace) -> None:
                 "Sample steps", initial_value=40, min=1, max=100, step=1,
             )
             infer_high_lora_txt = server.gui.add_text(
-                "High-noise LoRA", initial_value="",
+                "High-noise LoRA",
+                initial_value="/data/adi_temp/MorphicVideo/ckpts/jan06_scaling_80k_ckpt1400.safetensors",
             )
             infer_low_lora_txt = server.gui.add_text(
-                "Low-noise LoRA", initial_value="",
+                "Low-noise LoRA",
+                initial_value="/data/adi_temp/MorphicVideo/ckpts/dec23_v2v_lownoise_black_lora_512_ckpt1000.safetensors",
             )
             infer_ckpt_dir_txt = server.gui.add_text(
                 "Checkpoint dir (blank = auto-download)", initial_value="",
