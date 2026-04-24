@@ -449,13 +449,17 @@ def run(args: argparse.Namespace) -> None:
 
     # Set initial camera. Both initial_camera and client.camera go through the
     # set_up_direction scene transform, so we use the raw display-space values.
-    server.initial_camera.position = tuple(src_viewer_pos_display.tolist())
+    _init_cam_pos = tuple(src_viewer_pos_display.tolist())
+    server.initial_camera.position = _init_cam_pos
     server.initial_camera.look_at = (0.0, 0.0, 0.0)
     server.initial_camera.up = (0.0, 1.0, 0.0)
-    server.initial_camera.fov = float(np.radians(fov_deg))
 
     @server.on_client_connect
     def _on_client_connect(client: viser.ClientHandle) -> None:
+        client.camera.position = _init_cam_pos
+        client.camera.look_at = (0.0, 0.0, 0.0)
+        client.camera.up_direction = (0.0, 1.0, 0.0)
+
         @client.camera.on_update
         def _on_client_camera_update(cam: viser.CameraHandle) -> None:
             _schedule_viewfinder_settle(cam.client)
