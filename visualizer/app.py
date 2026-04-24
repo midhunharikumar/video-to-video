@@ -1377,21 +1377,21 @@ def run(args: argparse.Namespace) -> None:
                     text=True,
                 )
                 last_update = 0.0
-                _SHOW_KEYWORDS = ("step ", "sample", "loading", "saving", "generating", "complete", "pipeline")
-                _SKIP_KEYWORDS = ("http request", "cas::", "xet", "timestamp", "resolve-cache", "reconstruct")
+                _SKIP_PREFIXES = ("http request", "cas::", "xet", '"timestamp"', "resolve-cache", "reconstruct")
                 for line in proc.stdout:
                     line = line.rstrip()
                     if not line:
                         continue
-                    print(f"[inference] {line}")
+                    print(f"[inference] {line}", flush=True)
                     low = line.lower()
-                    if any(k in low for k in _SKIP_KEYWORDS):
+                    is_error = "error" in low or "traceback" in low or "exception" in low
+                    is_noise = not is_error and any(k in low for k in _SKIP_PREFIXES)
+                    if is_noise:
                         continue
                     now = _time.monotonic()
-                    is_progress = any(k in low for k in _SHOW_KEYWORDS) or "%" in line
-                    if is_progress or now - last_update > 5.0:
+                    if is_error or "%" in line or now - last_update > 3.0:
                         clean = line.strip().lstrip("[").split("]", 1)[-1].strip()
-                        infer_status_md.content = f"_{clean[-100:]}_"
+                        infer_status_md.content = f"_{clean[-120:]}_"
                         last_update = now
                 proc.wait()
                 if proc.returncode == 0:
