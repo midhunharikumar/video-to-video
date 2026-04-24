@@ -282,6 +282,7 @@ def run(args: argparse.Namespace) -> None:
     # ── Start Viser server ────────────────────────────────────────────────────
     server = viser.ViserServer(port=args.port, verbose=False)
     server.scene.set_up_direction("+y")
+    server.scene.set_background_image(np.full((1, 1, 3), 255, dtype=np.uint8))
     print(f"[app] Viser server running on http://localhost:{args.port}")
     print("[app] Open the URL in your browser (or tunnel if on a remote server).")
 
@@ -564,8 +565,8 @@ def run(args: argparse.Namespace) -> None:
             )
             bg_color_dd = server.gui.add_dropdown(
                 "Background",
-                options=("Dark", "Light", "Black"),
-                initial_value="Dark",
+                options=("White", "Light", "Dark", "Black"),
+                initial_value="White",
             )
             scene_gizmo_cb = server.gui.add_checkbox(
                 "Scene Gizmo (rotate/move scene)", initial_value=False,
@@ -718,6 +719,70 @@ def run(args: argparse.Namespace) -> None:
         infer_cmd_md = server.gui.add_markdown("")
         infer_status_md = server.gui.add_markdown("")
 
+    # ── Results tab ───────────────────────────────────────────────────────────
+    with tab_group.add_tab("Results", icon=viser.Icon.VIDEO):
+        results_dir_txt = server.gui.add_text(
+            "Results dir", initial_value=default_render_dir,
+        )
+        results_file_dd = server.gui.add_dropdown(
+            "Video file",
+            options=("render.mp4", "render_mask.mp4", "render_pink.mp4", "input.mp4"),
+            initial_value="render.mp4",
+        )
+        btn_load_result = server.gui.add_button("Load Video", color="teal")
+        results_thumb = server.gui.add_image(
+            np.zeros((H // 4, W // 4, 3), dtype=np.uint8),
+            label="Preview",
+            visible=False,
+        )
+        results_frame_slider = server.gui.add_slider(
+            "Frame", min=0, max=1, step=1, initial_value=0, visible=False,
+        )
+        results_status_md = server.gui.add_markdown("")
+
+    _result_frames: list[np.ndarray] = []
+
+    @btn_load_result.on_click
+    def _on_load_result(event: viser.GuiEvent) -> None:
+        rdir = Path(results_dir_txt.value.strip())
+        fname = results_file_dd.value
+        vpath = rdir / fname
+        if not vpath.exists():
+            # Check inference output dir too
+            infer_dir = Path(infer_save_folder_txt.value.strip())
+            candidates = list(infer_dir.glob("*.mp4")) if infer_dir.exists() else []
+            if candidates:
+                vpath = candidates[0]
+            else:
+                results_status_md.content = f"_Not found: {vpath}_"
+                return
+        try:
+            cap = cv2.VideoCapture(str(vpath))
+            _result_frames.clear()
+            while True:
+                ret, bgr = cap.read()
+                if not ret:
+                    break
+                _result_frames.append(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
+            cap.release()
+            if not _result_frames:
+                results_status_md.content = "_No frames in video._"
+                return
+            results_frame_slider.max = len(_result_frames) - 1
+            results_frame_slider.value = 0
+            results_frame_slider.visible = True
+            results_thumb.image = _result_frames[0]
+            results_thumb.visible = True
+            results_status_md.content = f"_Loaded {len(_result_frames)} frames from {vpath.name}_"
+        except Exception as exc:
+            results_status_md.content = f"_Error: {exc}_"
+
+    @results_frame_slider.on_update
+    def _on_result_frame(event: viser.GuiEvent) -> None:
+        idx = int(event.target.value)
+        if 0 <= idx < len(_result_frames):
+            results_thumb.image = _result_frames[idx]
+
     # ── "Load New Video" button (below tabs) ────────────────────────────────
     server.gui.add_markdown("---")
     btn_new_video = server.gui.add_button(
@@ -778,7 +843,8 @@ def run(args: argparse.Namespace) -> None:
                 h.point_size = size
 
     _BG_COLORS = {
-        "Dark":  None,          # viser default dark theme
+        "Dark":  None,
+        "White": (255, 255, 255),
         "Light": (220, 220, 220),
         "Black": (0, 0, 0),
     }
