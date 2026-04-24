@@ -452,6 +452,7 @@ def run(args: argparse.Namespace) -> None:
     server.initial_camera.position = tuple(src_viewer_pos_display.tolist())
     server.initial_camera.look_at = (0.0, 0.0, 0.0)
     server.initial_camera.up = (0.0, 1.0, 0.0)
+    server.initial_camera.fov = float(np.radians(fov_deg))
 
     @server.on_client_connect
     def _on_client_connect(client: viser.ClientHandle) -> None:
@@ -769,14 +770,18 @@ def run(args: argparse.Namespace) -> None:
         mode = event.target.value
         state["show_guide"] = mode != "Off"
         state["guide_mode"] = mode
-        # Force re-create overlay on mode change
+        # Remove existing overlays so they get re-created with the new mode
+        for cid, h in list(viewfinder_handles.items()):
+            try:
+                h.remove()
+            except Exception:
+                pass
         viewfinder_handles.clear()
         for c in server.get_clients().values():
             if state["show_guide"]:
                 _schedule_viewfinder_settle(c)
             else:
                 _cancel_settle_timer(c.client_id)
-                _set_viewfinder_visible(c, False)
 
     scene_playback = {
         "playing": False,
@@ -930,12 +935,15 @@ def run(args: argparse.Namespace) -> None:
 
     @nframe_num.on_update
     def _on_nframe(event: viser.GuiEvent) -> None:
-        wan_frames = snap_to_valid_wan_output(int(event.target.value))
-        if int(event.target.value) != wan_frames:
-            nframe_num.value = wan_frames
-        n_render = render_frames_for_wan_output(wan_frames)
-        render_frame_info.value = str(n_render)
-        state["n_output"] = n_render
+        raw = int(event.target.value)
+        if is_valid_wan_frame_count(raw):
+            n_render = render_frames_for_wan_output(raw)
+            render_frame_info.value = str(n_render)
+            state["n_output"] = n_render
+        else:
+            snapped = snap_to_valid_wan_output(raw)
+            render_frame_info.value = f"(type {snapped} or {snapped+4})"
+            state["n_output"] = render_frames_for_wan_output(snapped)
 
     @easing_dd.on_update
     def _on_easing(event: viser.GuiEvent) -> None:
