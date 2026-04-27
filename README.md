@@ -152,8 +152,8 @@ huggingface-cli download morphic/reshoot-anything --local-dir ./reshoot-anything
 ```
 
 ```bash
-HIGH_NOISE_LORA_WEIGHTS=./reshoot-anything-weights/jan06_scaling_80k_ckpt1400.safetensors
-LOW_NOISE_LORA_WEIGHTS=./reshoot-anything-weights/dec23_v2v_lownoise_black_lora_512_ckpt1000.safetensors
+HIGH_NOISE_LORA_WEIGHTS=./reshoot-anything-weights/jan06_scaling_80k_ckpt1400.safetensors \
+LOW_NOISE_LORA_WEIGHTS=./reshoot-anything-weights/dec23_v2v_lownoise_black_lora_512_ckpt1000.safetensors \
 ./run_wan22_inference.sh
 ```
 
